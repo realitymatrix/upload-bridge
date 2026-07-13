@@ -7,10 +7,19 @@
 //  - Only after human approval are file bytes sent to the browser extension
 //    over WebSocket (connections accepted from chrome-extension:// origins only).
 //  - No skip-dialog flag. Ever. Every upload is logged to uploads.log.
+//
+// Security hardening:
+//  - The dialog message is passed to PowerShell Base64-encoded, so file names
+//    cannot inject PowerShell syntax (no string interpolation into the script).
+//  - Approval dialogs are serialized: one at a time, in request order, so a
+//    click can never land on the wrong request.
+//  - Each request carries a requestId; the extension binds the target tab at
+//    REQUEST time, so the file cannot land on a tab focused later.
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { WebSocketServer } = require('ws');
 
@@ -32,19 +41,33 @@ function log(line) {
 }
 
 // ---- native approval dialog (trusted UI, default = Deny) ----
-function askHuman(filePath, sizeKb, targetHint, cb) {
-  const msg = `An agent requests to upload a file to a web form.\n\nFile: ${filePath}\nSize: ${sizeKb} KB\nTarget field: ${targetHint}\n\nApprove this upload?`;
-  const ps = [
-    '-NoProfile', '-Command',
-    `Add-Type -AssemblyName System.Windows.Forms; ` +
-    `$r=[System.Windows.Forms.MessageBox]::Show(@'\n${msg.replace(/'/g, "''")}\n'@,'Upload Bridge - Human Approval Required',` +
-    `[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning,` +
-    `[System.Windows.Forms.MessageBoxDefaultButton]::Button2); Write-Output $r`,
-  ];
-  execFile('powershell.exe', ps, { timeout: 120000 }, (err, stdout) => {
-    if (err) return cb(false, 'dialog error: ' + err.message);
-    cb(stdout.trim() === 'Yes', stdout.trim());
+// The message travels as Base64 and is decoded inside PowerShell, so no
+// content from the request (e.g. a hostile filename) is ever parsed as code.
+function askHuman(filePath, sizeKb, targetHint) {
+  return new Promise((resolve) => {
+    const msg =
+      `An agent requests to upload a file to a web form.\n\n` +
+      `File: ${filePath}\nSize: ${sizeKb} KB\nTarget field: ${targetHint}\n\nApprove this upload?`;
+    const b64 = Buffer.from(msg, 'utf8').toString('base64');
+    const script =
+      `Add-Type -AssemblyName System.Windows.Forms; ` +
+      `$m=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}')); ` +
+      `$r=[System.Windows.Forms.MessageBox]::Show($m,'Upload Bridge - Human Approval Required',` +
+      `[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning,` +
+      `[System.Windows.Forms.MessageBoxDefaultButton]::Button2); Write-Output $r`;
+    execFile('powershell.exe', ['-NoProfile', '-Command', script], { timeout: 120000 }, (err, stdout) => {
+      if (err) return resolve({ approved: false, raw: 'dialog error: ' + err.message });
+      resolve({ approved: stdout.trim() === 'Yes', raw: stdout.trim() });
+    });
   });
+}
+
+// Serialize approval dialogs: one visible dialog at a time, FIFO.
+let dialogQueue = Promise.resolve();
+function askHumanQueued(filePath, sizeKb, targetHint) {
+  const turn = dialogQueue.then(() => askHuman(filePath, sizeKb, targetHint));
+  dialogQueue = turn.catch(() => {}); // keep the queue alive on errors
+  return turn;
 }
 
 // ---- WebSocket server for the extension ----
@@ -56,6 +79,11 @@ wss.on('connection', (ws) => {
   ws.on('close', () => clients.delete(ws));
 });
 
+function broadcast(obj) {
+  const payload = JSON.stringify(obj);
+  for (const ws of clients) ws.send(payload);
+}
+
 // ---- HTTP server: /trigger (agent-facing) + /health ----
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
@@ -65,7 +93,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/trigger') {
     let body = '';
     req.on('data', (c) => (body += c));
-    req.on('end', () => {
+    req.on('end', async () => {
       let parsed;
       try { parsed = JSON.parse(body); } catch { res.writeHead(400); return res.end('bad json'); }
       const { file, target } = parsed;
@@ -76,25 +104,29 @@ const server = http.createServer((req, res) => {
 
       const sizeKb = Math.round(fs.statSync(file).size / 1024);
       const targetHint = String(target || 'unspecified').slice(0, 100);
-      log(`REQUEST file="${file}" (${sizeKb} KB) target="${targetHint}"`);
+      const requestId = crypto.randomUUID();
+      log(`REQUEST ${requestId} file="${file}" (${sizeKb} KB) target="${targetHint}"`);
 
-      askHuman(file, sizeKb, targetHint, (approved, raw) => {
-        if (!approved) {
-          log(`DENIED  file="${file}" (${raw})`);
-          res.writeHead(403); return res.end('denied by human');
-        }
-        const b64 = fs.readFileSync(file).toString('base64');
-        const payload = JSON.stringify({
-          type: 'inject',
-          fileName: path.basename(file),
-          mime: MIME[ext],
-          b64,
-          targetHint,
-        });
-        for (const ws of clients) ws.send(payload);
-        log(`APPROVED file="${file}" -> sent to ${clients.size} extension client(s)`);
-        res.writeHead(200); res.end('approved and dispatched');
+      // Bind the destination tab NOW, before the human deliberates.
+      broadcast({ type: 'pending', requestId });
+
+      const { approved, raw } = await askHumanQueued(file, sizeKb, targetHint);
+      if (!approved) {
+        log(`DENIED  ${requestId} file="${file}" (${raw})`);
+        broadcast({ type: 'cancelled', requestId });
+        res.writeHead(403); return res.end('denied by human');
+      }
+      const b64 = fs.readFileSync(file).toString('base64');
+      broadcast({
+        type: 'inject',
+        requestId,
+        fileName: path.basename(file),
+        mime: MIME[ext],
+        b64,
+        targetHint,
       });
+      log(`APPROVED ${requestId} file="${file}" -> sent to ${clients.size} extension client(s)`);
+      res.writeHead(200); res.end('approved and dispatched');
     });
     return;
   }

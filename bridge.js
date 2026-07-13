@@ -109,6 +109,67 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  // Combined approval form: multiple file approvals + questions in ONE window.
+  // POST /form { title, items:[ {kind:'file', label, path, target},
+  //                             {kind:'choice', id, question, options[], other?},
+  //                             {kind:'text', id, question, value?} ] }
+  // Returns the human's decisions as JSON; approved files are dispatched to the
+  // extension. Files stay deny-by-default (unchecked) in the form.
+  if (req.method === 'POST' && req.url === '/form') {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', async () => {
+      let parsed;
+      try { parsed = JSON.parse(body); } catch { res.writeHead(400); return res.end('bad json'); }
+      if (!Array.isArray(parsed.items) || parsed.items.length === 0) { res.writeHead(400); return res.end('items[] required'); }
+
+      const fileItems = parsed.items.filter((i) => i.kind === 'file');
+      for (const f of fileItems) {
+        if (!f.path || !fs.existsSync(f.path)) { res.writeHead(404); return res.end(`file not found: ${f.path}`); }
+        if (!MIME[path.extname(f.path).toLowerCase()]) { res.writeHead(415); return res.end(`unsupported type: ${f.path}`); }
+        f.size = `${Math.round(fs.statSync(f.path).size / 1024)} KB`;
+      }
+      if (fileItems.length > 0 && clients.size === 0) { res.writeHead(503); return res.end('extension not connected'); }
+
+      const requestId = crypto.randomUUID();
+      log(`FORM ${requestId} ${parsed.items.length} items (${fileItems.length} files)`);
+      broadcast({ type: 'pending', requestId });
+
+      const spec = Buffer.from(JSON.stringify(parsed), 'utf8').toString('base64');
+      const runForm = () => new Promise((resolve) => {
+        execFile('powershell.exe',
+          ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'dialog-form.ps1'), '-spec', spec],
+          { timeout: 600000, maxBuffer: 4 * 1024 * 1024 },
+          (err, stdout) => {
+            if (err) return resolve({ cancelled: true, error: 'dialog error: ' + err.message });
+            try { resolve(JSON.parse(stdout.trim())); } catch { resolve({ cancelled: true, error: 'unparseable dialog output' }); }
+          });
+      });
+      const turn = dialogQueue.then(runForm);
+      dialogQueue = turn.catch(() => {});
+      const result = await turn;
+
+      let dispatched = [];
+      if (!result.cancelled && result.files) {
+        for (const f of fileItems) {
+          if (result.files[f.label]) {
+            const b64 = fs.readFileSync(f.path).toString('base64');
+            broadcast({ type: 'inject', requestId, fileName: path.basename(f.path), mime: MIME[path.extname(f.path).toLowerCase()], b64, targetHint: f.target || f.label });
+            dispatched.push(f.label);
+            log(`FORM ${requestId} APPROVED+DISPATCHED "${f.label}"`);
+          } else {
+            log(`FORM ${requestId} DENIED "${f.label}"`);
+          }
+        }
+      } else {
+        broadcast({ type: 'cancelled', requestId });
+        log(`FORM ${requestId} CANCELLED (${result.error || 'user'})`);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ cancelled: !!result.cancelled, answers: result.answers || {}, files: result.files || {}, dispatched }));
+    });
+    return;
+  }
   if (req.method === 'POST' && req.url === '/trigger') {
     let body = '';
     req.on('data', (c) => (body += c));

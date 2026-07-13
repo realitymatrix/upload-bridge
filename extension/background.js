@@ -13,9 +13,11 @@ async function bindPendingTab(requestId) {
 }
 
 async function takePendingTab(requestId) {
+  // Read without immediate removal: one request may dispatch multiple files
+  // (combined approval form). Bindings expire after 10 minutes instead.
   const key = 'req_' + requestId;
   const stored = await chrome.storage.session.get(key);
-  await chrome.storage.session.remove(key);
+  setTimeout(() => chrome.storage.session.remove(key), 10 * 60 * 1000);
   return stored[key];
 }
 

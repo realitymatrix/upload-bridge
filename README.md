@@ -133,6 +133,8 @@ or in a project `.mcp.json`:
 
 **Roadmap:** see [`ROADMAP.md`](ROADMAP.md) — the project is growing from file-upload consent into a general governance layer for agentic browsing (governed action classes, per-origin policies, signed audit receipts).
 
+**The protocol:** the pattern this tool implements is being standardized as the [Consent Request Protocol (CRP)](https://github.com/realitymatrix/consent-request-protocol) — a small, transport-neutral spec (JSON schemas included) for agent-requested, human-approved, receipt-producing actions. Upload Bridge is its reference implementation.
+
 **Health check:**
 
 ```

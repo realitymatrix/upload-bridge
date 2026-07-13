@@ -70,6 +70,31 @@ function askHumanQueued(filePath, sizeKb, targetHint) {
   return turn;
 }
 
+// ---- native payment-authorization dialog (trusted UI, default = Deny) ----
+// Object-bound consent for money movement: the OS renders the true amount and
+// payee, which a compromised agent cannot repaint. Same shape as PSD2 dynamic
+// linking. Every field travels Base64-encoded, decoded inside PowerShell.
+function askPayment({ amount, payee, account, memo }) {
+  return new Promise((resolve) => {
+    const b64 = (v) => Buffer.from(String(v == null ? '' : v), 'utf8').toString('base64');
+    const args = [
+      '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass',
+      '-File', path.join(__dirname, 'dialog-pay.ps1'),
+      '-amount', b64(amount), '-payee', b64(payee),
+      '-account', b64(account), '-memo', b64(memo),
+    ];
+    execFile('powershell.exe', args, { timeout: 120000 }, (err, stdout) => {
+      if (err) return resolve({ approved: false, raw: 'dialog error: ' + err.message });
+      resolve({ approved: stdout.trim() === 'Yes', raw: stdout.trim() });
+    });
+  });
+}
+
+// Demo state for the self-contained transfer page (demo/transfer.html), which
+// polls GET /demo/state to reflect pending / approved / denied. Purely for the
+// authorization demo - no real money, no payment rail.
+let demoState = { phase: 'idle', payment: null, at: null };
+
 // ---- WebSocket server for the extension ----
 const wss = new WebSocketServer({ noServer: true });
 const clients = new Set();
@@ -169,6 +194,55 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ cancelled: !!result.cancelled, answers: result.answers || {}, files: result.files || {}, dispatched }));
     });
     return;
+  }
+  // Demo transfer page polls this to reflect the authorization outcome.
+  // CORS-open GET so the static page can read it from any local origin.
+  if (req.method === 'GET' && req.url.startsWith('/demo/state')) {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+    });
+    return res.end(JSON.stringify(demoState));
+  }
+  // Payment authorization: the money-movement consent case.
+  // POST /authorize { amount, payee, account, memo, targetUrl }
+  // The dialog shows amount + payee as the bound object; nothing is "sent"
+  // (this is a demo with no payment rail) - approval only flips demoState so
+  // the transfer page can show the outcome. Deny is the default.
+  if (req.method === 'POST' && req.url === '/authorize') {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', async () => {
+      let p;
+      try { p = JSON.parse(body); } catch { res.writeHead(400); return res.end('bad json'); }
+      if (!p.amount || !p.payee) { res.writeHead(400); return res.end('amount and payee required'); }
+      const requestId = crypto.randomUUID();
+      const payment = {
+        amount: String(p.amount), payee: String(p.payee),
+        account: String(p.account || ''), memo: String(p.memo || ''),
+      };
+      log(`AUTHORIZE ${requestId} amount="${payment.amount}" payee="${payment.payee}" account="${payment.account}"`);
+      demoState = { phase: 'pending', payment, at: new Date().toISOString() };
+
+      const turn = dialogQueue.then(() => askPayment(payment));
+      dialogQueue = turn.catch(() => {});
+      const { approved, raw } = await turn;
+
+      demoState = { phase: approved ? 'approved' : 'denied', payment, at: new Date().toISOString() };
+      if (approved) {
+        log(`AUTHORIZED ${requestId} "${payment.amount}" -> "${payment.payee}"`);
+        res.writeHead(200); return res.end('authorized by human');
+      }
+      log(`DENIED  ${requestId} "${payment.amount}" -> "${payment.payee}" (${raw})`);
+      res.writeHead(403); return res.end('denied by human');
+    });
+    return;
+  }
+  // Reset the demo page back to its ready state between takes.
+  if (req.method === 'POST' && req.url === '/demo/reset') {
+    demoState = { phase: 'idle', payment: null, at: null };
+    res.writeHead(200); return res.end('reset');
   }
   if (req.method === 'POST' && req.url === '/trigger') {
     let body = '';

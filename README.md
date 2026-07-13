@@ -2,11 +2,40 @@
 
 Human-in-the-loop consent for agentic browser automation: file uploads, one-pass form filling, and native approval forms.
 
+<p align="center">
+  <img src="docs/consent-demo.gif" alt="A hijacked agent shows a $40 payment on screen while its real action is a $4,000 transfer to a stranger; a native Windows consent dialog reveals the true amount and payee, and the human denies it." width="760">
+</p>
+
+<p align="center">
+  <em>The consent pattern, illustrated with a payment: the agent shows you "$40 to Acme," but its real action is "$4,000 to a stranger." The OS dialog — which the agent cannot draw — surfaces the true amount and payee, so a human can deny it. (Payments are illustrative of where this is headed; the shipped tool covers file uploads and forms today — see <a href="ROADMAP.md">ROADMAP</a>.) <a href="#watch-the-explainer">▶ Watch the 35-second explainer.</a></em>
+</p>
+
 AI agents that drive a browser (filling job applications, submitting forms) inevitably hit `<input type="file">`. Letting a model push arbitrary local files into arbitrary webpages is unsafe: a compromised or prompt-injected agent could exfiltrate any file it can name. Upload Bridge closes that gap. The agent may **request** an upload, but bytes only move after a **human approves in a native Windows 11 dialog** rendered by trusted local code — showing the true resolved file path, size, and target field, deny-by-default.
 
 ![Consent form](docs/consent-form.png)
 
 *The combined approval form: file uploads (unchecked = denied) and agent questions, answered in one native window with a real Mica backdrop and the user's system accent color.*
+
+## Watch the explainer
+
+<!--
+  GitHub cannot run the HTML/CSS animation itself (README markdown strips JS/CSS).
+  Embed it as a VIDEO instead. Two options, best used together:
+
+  1) Full-quality MP4 (play button, muted-autoplay, high quality):
+     - Edit this README on github.com (pencil icon), then DRAG the exported
+       .mp4 into the editor at the line below. GitHub uploads it and inserts a
+       URL like https://github.com/user-attachments/assets/<uuid>.
+     - Paste that URL on its own line right here. GitHub renders it as a player.
+     - This does NOT commit the file to the repo; the URL is GitHub-hosted.
+
+  2) The looping GIF at the top of this README (docs/consent-demo.gif) is the
+     always-visible autoplay loop. Keep it short so the file stays small.
+-->
+
+<!-- Paste the user-attachments MP4 URL on the next line after uploading: -->
+
+_The 35-second explainer renders as a video here once uploaded (see the comment above). The looping preview at the top of this README is a trimmed clip of the same animation. To (re)generate these assets, see [docs/ASSETS.md](docs/ASSETS.md)._
 
 ## Architecture
 

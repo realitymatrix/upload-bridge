@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Meridian - Authorize transfer</title>
+<style>
+  :root {
+    --navy: #0c2b4a; --navy-2: #123a61; --ink: #14202e; --muted: #64748b;
+    --line: #dfe5ec; --surface: #ffffff; --page: #eef2f7;
+    --accent: #1a5fb4; --good: #0f7a5a; --good-bg: #e6f4ee;
+    --bad: #c4392d; --bad-bg: #fbecea; --warn: #b25f00; --warn-bg: #fbf1e2;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--page); color: var(--ink);
+    -webkit-font-smoothing: antialiased; line-height: 1.5;
+  }
+  .topbar {
+    background: var(--navy); color: #fff; height: 60px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; font-weight: 600; font-size: 19px; letter-spacing: .2px; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 8px; background: #2f7fd6;
+    display: grid; place-items: center; font-weight: 700; font-size: 16px;
+  }
+  .acct-chip {
+    font-size: 13px; color: #cfe0f2; display: flex; align-items: center; gap: 9px;
+  }
+  .acct-chip .dot { width: 30px; height: 30px; border-radius: 50%; background: #1d4b7a; display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 13px; }
+
+  .wrap { max-width: 560px; margin: 40px auto; padding: 0 20px; }
+  .eyebrow { font-size: 13px; color: var(--muted); font-weight: 500; }
+  h1 { font-size: 24px; margin: 4px 0 22px; font-weight: 600; letter-spacing: -.2px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; overflow: hidden;
+  }
+  .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row .k { font-size: 13px; color: var(--muted); }
+  .row .v { font-size: 15px; font-weight: 500; text-align: right; }
+  .row .v .sub { font-size: 12.5px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+
+  .amount-row { background: #f7f9fc; padding: 22px; }
+  .amount-row .k { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 600; }
+  .amount { font-size: 40px; font-weight: 700; letter-spacing: -1px; margin-top: 2px; }
+  .amount .cc { font-size: 18px; color: var(--muted); font-weight: 500; margin-left: 6px; }
+
+  .payee-badge { display: inline-flex; align-items: center; gap: 8px; }
+  .payee-badge .pv { width: 34px; height: 34px; border-radius: 9px; background: #e7edf5; color: var(--navy-2); display: grid; place-items: center; font-weight: 700; font-size: 14px; }
+
+  .status {
+    margin-top: 18px; border-radius: 12px; padding: 16px 18px;
+    display: flex; align-items: center; gap: 13px; font-size: 14.5px;
+    border: 1px solid var(--line); background: var(--surface);
+  }
+  .status .ico { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; font-size: 18px; }
+  .status .txt b { display: block; font-weight: 600; font-size: 14.5px; }
+  .status .txt span { color: var(--muted); font-size: 13px; }
+
+  .status.pending { background: #f2f6fb; border-color: #d7e3f2; }
+  .status.pending .ico { background: #dbe8f7; color: var(--accent); }
+  .status.approved { background: var(--good-bg); border-color: #bfe3d3; }
+  .status.approved .ico { background: #cdeadd; color: var(--good); }
+  .status.approved .txt b { color: var(--good); }
+  .status.denied { background: var(--bad-bg); border-color: #f2cdc8; }
+  .status.denied .ico { background: #f6d6d1; color: var(--bad); }
+  .status.denied .txt b { color: var(--bad); }
+
+  .mismatch {
+    margin-top: 14px; border: 1px solid #f2cdc8; background: var(--bad-bg);
+    border-radius: 12px; padding: 15px 18px; font-size: 13.5px; color: #7a241c;
+    display: none;
+  }
+  .mismatch b { color: var(--bad); }
+  .mismatch .cmp { margin-top: 9px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mismatch .cmp div { background: #fff; border: 1px solid #f2cdc8; border-radius: 9px; padding: 9px 11px; }
+  .mismatch .cmp .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .mismatch .cmp .big { font-size: 16px; font-weight: 700; color: var(--ink); margin-top: 2px; }
+
+  .btns { margin-top: 18px; display: flex; gap: 12px; }
+  .btn { flex: 1; height: 46px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); font: inherit; font-weight: 600; font-size: 15px; color: var(--ink); cursor: default; }
+  .btn.primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .btn[disabled] { opacity: .55; }
+
+  .spin { width: 18px; height: 18px; border: 2.5px solid #c3d5ea; border-top-color: var(--accent); border-radius: 50%; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .foot { text-align: center; color: var(--muted); font-size: 12px; margin-top: 22px; }
+  .lock { vertical-align: -1px; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="mark">M</span> Meridian</div>
+    <div class="acct-chip"><span>Petr Korolev</span><span class="dot">PK</span></div>
+  </div>
+
+  <div class="wrap">
+    <div class="eyebrow">Payments &nbsp;/&nbsp; Review &amp; authorize</div>
+    <h1>Confirm this transfer</h1>
+
+    <div class="card">
+      <div class="amount-row">
+        <div class="k">Amount</div>
+        <div class="amount">$<span id="amt">40.00</span><span class="cc">USD</span></div>
+      </div>
+      <div class="row">
+        <div class="k">To</div>
+        <div class="v">
+          <span class="payee-badge"><span class="pv" id="payeeInitials">AC</span><span id="payee">Acme Contracting</span></span>
+          <div class="sub" id="account">Account ****8842</div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="k">From</div>
+        <div class="v">Everyday Chequing<div class="sub">****3310 &middot; Balance $18,204.55</div></div>
+      </div>
+      <div class="row">
+        <div class="k">Memo</div>
+        <div class="v" id="memo" style="font-weight:400;max-width:280px">Invoice #1042</div>
+      </div>
+      <div class="row">
+        <div class="k">Fee</div>
+        <div class="v" style="font-weight:400">$0.00</div>
+      </div>
+    </div>
+
+    <div class="status pending" id="status">
+      <div class="ico"><div class="spin"></div></div>
+      <div class="txt"><b>Waiting for authorization</b><span id="statusSub">Approve this transfer in the secure Windows prompt to continue.</span></div>
+    </div>
+
+    <div class="mismatch" id="mismatch">
+      <b>This is not what was shown to you.</b> The agent asked your bank to send a different amount to a different payee. You blocked it in the authorization prompt.
+      <div class="cmp">
+        <div><div class="lbl">Shown on this page</div><div class="big" id="cmpClaim">$40.00</div></div>
+        <div><div class="lbl">Actually requested</div><div class="big" id="cmpTrue">$4,000.00</div></div>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button class="btn" disabled>Cancel</button>
+      <button class="btn primary" disabled id="authBtn">Authorize transfer</button>
+    </div>
+
+    <div class="foot"><span class="lock">&#128274;</span> Authorization is handled by your device. Meridian never lets an app approve a payment on your behalf.</div>
+  </div>
+
+<script>
+  const qs = new URLSearchParams(location.search);
+  const shown = {
+    amount: qs.get('amount') || '40.00',
+    payee: qs.get('payee') || 'Acme Contracting',
+    account: qs.get('account') || 'Account ****8842',
+    memo: qs.get('memo') || 'Invoice #1042',
+  };
+  const initials = (name) => name.trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
+  document.getElementById('amt').textContent = shown.amount;
+  document.getElementById('payee').textContent = shown.payee;
+  document.getElementById('payeeInitials').textContent = initials(shown.payee);
+  document.getElementById('account').textContent = shown.account;
+  document.getElementById('memo').textContent = shown.memo;
+  document.getElementById('cmpClaim').textContent = '$' + shown.amount;
+
+  const statusEl = document.getElementById('status');
+  const subEl = document.getElementById('statusSub');
+  const setStatus = (cls, icon, title, sub) => {
+    statusEl.className = 'status ' + cls;
+    statusEl.querySelector('.ico').innerHTML = icon;
+    statusEl.querySelector('.txt b').textContent = title;
+    subEl.textContent = sub;
+  };
+  const check = '&#10003;', cross = '&#10005;', spin = '<div class="spin"></div>';
+
+  const normAmt = (s) => String(s).replace(/[^0-9.]/g, '');
+
+  async function poll() {
+    let s;
+    try {
+      const r = await fetch('http://127.0.0.1:8765/demo/state', { cache: 'no-store' });
+      s = await r.json();
+    } catch { return; }
+
+    if (s.phase === 'pending') {
+      setStatus('pending', spin, 'Waiting for authorization', 'Approve this transfer in the secure Windows prompt to continue.');
+      document.getElementById('mismatch').style.display = 'none';
+    } else if (s.phase === 'approved') {
+      setStatus('approved', check, 'Transfer authorized', 'You approved this payment. Meridian is sending it now.');
+    } else if (s.phase === 'denied') {
+      setStatus('denied', cross, 'Transfer blocked', 'You denied this payment. Nothing was sent.');
+      const trueAmt = s.payment ? normAmt(s.payment.amount) : '';
+      const truePayee = s.payment ? s.payment.payee : '';
+      const mismatch = trueAmt && (trueAmt !== normAmt(shown.amount) || (truePayee && truePayee !== shown.payee));
+      const m = document.getElementById('mismatch');
+      if (mismatch) {
+        document.getElementById('cmpTrue').textContent = '$' + (s.payment.amount.replace(/^\$/, ''));
+        m.style.display = 'block';
+      } else {
+        m.style.display = 'none';
+      }
+    } else {
+      setStatus('pending', spin, 'Ready when you are', 'An agent will request authorization for this transfer.');
+    }
+  }
+  poll();
+  setInterval(poll, 600);
+</script>
+</body>
+</html>

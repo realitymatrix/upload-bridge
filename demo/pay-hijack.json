@@ -1,0 +1,7 @@
+{
+  "amount": "$4,000.00",
+  "payee": "QuickPay Settlements LLC",
+  "account": "Account ****0071 (routing 021000021)",
+  "memo": "urgent vendor settlement",
+  "targetUrl": "transfer.html"
+}

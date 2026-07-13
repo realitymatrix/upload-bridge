@@ -1,0 +1,172 @@
+openapi: 3.0.3
+info:
+  title: Upload Bridge
+  version: "1.0"
+  description: |
+    Human-in-the-loop consent layer for agentic browser automation.
+
+    Agents REQUEST actions over this local API; file uploads and combined
+    decision forms only complete after a human approves in a native Windows
+    dialog rendered by trusted local code (deny-by-default). Text-only form
+    fills skip the dialog (no file-exfiltration risk) but are audit-logged.
+
+    The API is bound to 127.0.0.1 and is intentionally unauthenticated for
+    now: any local process may REQUEST, but consent always comes from the
+    human dialog. One-time request tokens are on the roadmap.
+servers:
+  - url: http://127.0.0.1:8765
+paths:
+  /health:
+    get:
+      summary: Bridge and extension status
+      operationId: getHealth
+      responses:
+        "200":
+          description: Bridge is running.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  extensionConnected:
+                    type: boolean
+                    description: True when the browser extension has an open WebSocket to the bridge.
+  /trigger:
+    post:
+      summary: Request a single file upload (native approval dialog)
+      description: |
+        Blocks until the human approves or denies in the native dialog.
+        On approval, the file is injected into the matching input[type=file]
+        in the target browser tab.
+      operationId: triggerUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  description: Absolute local path. Allowed extensions: pdf, doc, docx, txt, rtf.
+                target:
+                  type: string
+                  description: Hint matched against label text near the file input (e.g. "Resume", "Cover Letter").
+                targetUrl:
+                  type: string
+                  description: URL substring selecting the destination tab (e.g. "greenhouse.io/acme"). Falls back to the active tab.
+      responses:
+        "200": { description: Approved by human and dispatched to the extension. }
+        "403": { description: Denied by human. Nothing was uploaded. }
+        "404": { description: File not found. }
+        "415": { description: Unsupported file type. }
+        "503": { description: Extension not connected. }
+  /fill:
+    post:
+      summary: One-pass form fill (text values only, no dialog)
+      description: |
+        Fills every matching control on the target page in one pass. Values
+        are set React-compatibly so SPA frameworks register them. Carries no
+        file bytes, so no consent dialog is shown; the request is audit-logged
+        and values are expected to be human-approved upstream.
+      operationId: fillForm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fields]
+              properties:
+                targetUrl: { type: string }
+                fields:
+                  type: array
+                  items:
+                    type: object
+                    required: [label, value]
+                    properties:
+                      label:
+                        type: string
+                        description: Matched against text near the control (labels, wrappers).
+                      value: { type: string }
+                      commit:
+                        type: boolean
+                        description: Nudge combobox-style fields with ArrowDown+Enter after typing (best-effort).
+      responses:
+        "200": { description: Fields dispatched to the extension. Check the on-page toast for the per-field report. }
+        "400": { description: Missing or empty fields[]. }
+        "503": { description: Extension not connected. }
+  /form:
+    post:
+      summary: Combined approval form (files + questions in one native window)
+      description: |
+        Renders one native Windows 11 form containing file-approval rows
+        (checkboxes, deny-by-default) and questions for the human. Blocks
+        until submitted or cancelled. Approved files are dispatched to the
+        extension; the human's answers are returned to the caller.
+      operationId: requestDecisions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                title: { type: string }
+                targetUrl: { type: string }
+                items:
+                  type: array
+                  items:
+                    oneOf:
+                      - type: object
+                        required: [kind, label, path]
+                        properties:
+                          kind: { type: string, enum: [file] }
+                          label: { type: string }
+                          path: { type: string }
+                          target: { type: string }
+                      - type: object
+                        required: [kind, id, question, options]
+                        properties:
+                          kind: { type: string, enum: [choice] }
+                          id: { type: string }
+                          question: { type: string }
+                          options:
+                            type: array
+                            items: { type: string }
+                          other:
+                            type: boolean
+                            description: Adds a free-text "Other / notes" box.
+                      - type: object
+                        required: [kind, id, question]
+                        properties:
+                          kind: { type: string, enum: [text] }
+                          id: { type: string }
+                          question: { type: string }
+                          value:
+                            type: string
+                            description: Optional pre-filled draft the human can edit.
+      responses:
+        "200":
+          description: The human's decisions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled: { type: boolean }
+                  answers:
+                    type: object
+                    additionalProperties: { type: string }
+                  files:
+                    type: object
+                    additionalProperties: { type: boolean }
+                  dispatched:
+                    type: array
+                    items: { type: string }
+        "400": { description: Missing or empty items[]. }
+        "404": { description: A referenced file was not found. }
+        "503": { description: Extension not connected while file items present. }

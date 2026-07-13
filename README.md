@@ -117,6 +117,22 @@ node form.js spec.json
 
 Returns the human's decisions as JSON (`{ cancelled, answers, files, dispatched }`) and dispatches approved files.
 
+**MCP server** (recommended for agents): expose the bridge as first-class MCP tools — `upload_file`, `fill_form`, `request_decisions`, `bridge_health` — with the human-consent layer unchanged underneath:
+
+```
+claude mcp add upload-bridge -- node /path/to/upload-bridge/mcp-server.mjs
+```
+
+or in a project `.mcp.json`:
+
+```json
+{ "mcpServers": { "upload-bridge": { "command": "node", "args": ["/path/to/upload-bridge/mcp-server.mjs"] } } }
+```
+
+**OpenAPI:** the full HTTP API is specified in [`openapi.yaml`](openapi.yaml) for any non-MCP integration.
+
+**Roadmap:** see [`ROADMAP.md`](ROADMAP.md) — the project is growing from file-upload consent into a general governance layer for agentic browsing (governed action classes, per-origin policies, signed audit receipts).
+
 **Health check:**
 
 ```

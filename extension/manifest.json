@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Upload Bridge",
+  "version": "1.0",
+  "description": "Injects human-approved files from the local Upload Bridge into web-form file inputs.",
+  "background": { "service_worker": "background.js" },
+  "permissions": ["tabs", "alarms"],
+  "host_permissions": [
+    "https://job-boards.greenhouse.io/*",
+    "https://jobs.ashbyhq.com/*",
+    "https://jobs.lever.co/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.prevueaps.com/*",
+    "https://www.metacareers.com/*",
+    "https://careers.kula.ai/*",
+    "https://*.applytojob.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://job-boards.greenhouse.io/*",
+        "https://jobs.ashbyhq.com/*",
+        "https://jobs.lever.co/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.prevueaps.com/*",
+        "https://www.metacareers.com/*",
+        "https://careers.kula.ai/*",
+        "https://*.applytojob.com/*"
+      ],
+      "js": ["content.js"],
+      "all_frames": true
+    }
+  ]
+}

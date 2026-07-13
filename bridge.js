@@ -103,7 +103,7 @@ const server = http.createServer((req, res) => {
       if (clients.size === 0) { res.writeHead(503); return res.end('extension not connected'); }
       const requestId = crypto.randomUUID();
       log(`FILL ${requestId} ${parsed.fields.length} fields: ${parsed.fields.map((f) => f.label).join(' | ')}`);
-      broadcast({ type: 'pending', requestId });
+      broadcast({ type: 'pending', requestId, targetUrl: parsed.targetUrl });
       setTimeout(() => broadcast({ type: 'fill', requestId, fields: parsed.fields }), 300);
       res.writeHead(200); res.end(`dispatched ${parsed.fields.length} fields`);
     });
@@ -133,7 +133,7 @@ const server = http.createServer((req, res) => {
 
       const requestId = crypto.randomUUID();
       log(`FORM ${requestId} ${parsed.items.length} items (${fileItems.length} files)`);
-      broadcast({ type: 'pending', requestId });
+      broadcast({ type: 'pending', requestId, targetUrl: parsed.targetUrl });
 
       const spec = Buffer.from(JSON.stringify(parsed), 'utf8').toString('base64');
       const runForm = () => new Promise((resolve) => {
@@ -188,7 +188,7 @@ const server = http.createServer((req, res) => {
       log(`REQUEST ${requestId} file="${file}" (${sizeKb} KB) target="${targetHint}"`);
 
       // Bind the destination tab NOW, before the human deliberates.
-      broadcast({ type: 'pending', requestId });
+      broadcast({ type: 'pending', requestId, targetUrl: parsed.targetUrl });
 
       const { approved, raw } = await askHumanQueued(file, sizeKb, targetHint);
       if (!approved) {

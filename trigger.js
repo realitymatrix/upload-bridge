@@ -2,10 +2,10 @@
 // Usage: node trigger.js "<absolute file path>" "<target hint, e.g. Resume>"
 const http = require('http');
 
-const [, , file, target] = process.argv;
-if (!file) { console.error('usage: node trigger.js "<file>" "<target hint>"'); process.exit(2); }
+const [, , file, target, targetUrl] = process.argv;
+if (!file) { console.error('usage: node trigger.js "<file>" "<target hint>" ["<target url substring>"]'); process.exit(2); }
 
-const body = JSON.stringify({ file, target: target || 'unspecified' });
+const body = JSON.stringify({ file, target: target || 'unspecified', targetUrl: targetUrl || undefined });
 const req = http.request(
   { host: '127.0.0.1', port: 8765, path: '/trigger', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, timeout: 130000 },
   (res) => {

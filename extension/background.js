@@ -6,8 +6,16 @@
 
 let ws = null;
 
-async function bindPendingTab(requestId) {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+async function bindPendingTab(requestId, targetUrl) {
+  // Prefer the tab whose URL matches the request's target site; the user may
+  // be reading something else entirely while the agent works. Fall back to
+  // the active tab only when no URL hint is provided or nothing matches.
+  let tab;
+  if (targetUrl) {
+    const all = await chrome.tabs.query({});
+    tab = all.find((t) => t.url && t.url.includes(targetUrl));
+  }
+  if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab) return;
   await chrome.storage.session.set({ ['req_' + requestId]: tab.id });
 }
@@ -31,7 +39,7 @@ function connect() {
     let msg;
     try { msg = JSON.parse(event.data); } catch { return; }
 
-    if (msg.type === 'pending') return bindPendingTab(msg.requestId);
+    if (msg.type === 'pending') return bindPendingTab(msg.requestId, msg.targetUrl);
     if (msg.type === 'cancelled') return takePendingTab(msg.requestId);
     if (msg.type !== 'inject' && msg.type !== 'fill') return;
 

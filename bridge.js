@@ -45,17 +45,17 @@ function log(line) {
 // content from the request (e.g. a hostile filename) is ever parsed as code.
 function askHuman(filePath, sizeKb, targetHint) {
   return new Promise((resolve) => {
-    const msg =
-      `An agent requests to upload a file to a web form.\n\n` +
-      `File: ${filePath}\nSize: ${sizeKb} KB\nTarget field: ${targetHint}\n\nApprove this upload?`;
-    const b64 = Buffer.from(msg, 'utf8').toString('base64');
-    const script =
-      `Add-Type -AssemblyName System.Windows.Forms; ` +
-      `$m=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}')); ` +
-      `$r=[System.Windows.Forms.MessageBox]::Show($m,'Upload Bridge - Human Approval Required',` +
-      `[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning,` +
-      `[System.Windows.Forms.MessageBoxDefaultButton]::Button2); Write-Output $r`;
-    execFile('powershell.exe', ['-NoProfile', '-Command', script], { timeout: 120000 }, (err, stdout) => {
+    // Windows 11 styled WPF/XAML dialog (dialog.ps1). Request data travels
+    // Base64-encoded and is assigned to Text properties after XAML parsing,
+    // so nothing user-controlled can inject PowerShell or XAML.
+    const args = [
+      '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass',
+      '-File', path.join(__dirname, 'dialog.ps1'),
+      '-f', Buffer.from(filePath, 'utf8').toString('base64'),
+      '-s', `${sizeKb} KB`,
+      '-t', Buffer.from(String(targetHint), 'utf8').toString('base64'),
+    ];
+    execFile('powershell.exe', args, { timeout: 120000 }, (err, stdout) => {
       if (err) return resolve({ approved: false, raw: 'dialog error: ' + err.message });
       resolve({ approved: stdout.trim() === 'Yes', raw: stdout.trim() });
     });

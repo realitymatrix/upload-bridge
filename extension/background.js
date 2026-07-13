@@ -31,7 +31,7 @@ function connect() {
 
     if (msg.type === 'pending') return bindPendingTab(msg.requestId);
     if (msg.type === 'cancelled') return takePendingTab(msg.requestId);
-    if (msg.type !== 'inject') return;
+    if (msg.type !== 'inject' && msg.type !== 'fill') return;
 
     let tabId = await takePendingTab(msg.requestId);
     if (tabId === undefined) {

@@ -90,6 +90,25 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ ok: true, extensionConnected: clients.size > 0 }));
   }
+  // One-pass form fill: text values only (no files), forwarded to the extension.
+  // No native dialog: field values carry no file-exfiltration risk and are
+  // human-approved upstream in the agent's confirmation flow. Logged for audit.
+  if (req.method === 'POST' && req.url === '/fill') {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      let parsed;
+      try { parsed = JSON.parse(body); } catch { res.writeHead(400); return res.end('bad json'); }
+      if (!Array.isArray(parsed.fields) || parsed.fields.length === 0) { res.writeHead(400); return res.end('fields[] required'); }
+      if (clients.size === 0) { res.writeHead(503); return res.end('extension not connected'); }
+      const requestId = crypto.randomUUID();
+      log(`FILL ${requestId} ${parsed.fields.length} fields: ${parsed.fields.map((f) => f.label).join(' | ')}`);
+      broadcast({ type: 'pending', requestId });
+      setTimeout(() => broadcast({ type: 'fill', requestId, fields: parsed.fields }), 300);
+      res.writeHead(200); res.end(`dispatched ${parsed.fields.length} fields`);
+    });
+    return;
+  }
   if (req.method === 'POST' && req.url === '/trigger') {
     let body = '';
     req.on('data', (c) => (body += c));

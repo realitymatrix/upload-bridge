@@ -35,7 +35,75 @@ function toast(text, ok) {
   setTimeout(() => el.remove(), 5000);
 }
 
+// ---- one-pass form filling ----
+// Receives {type:'fill', fields:[{label, value}]} and fills every matching
+// control in one pass. Values are set the React-compatible way (native setter
+// + input event) so ATS frameworks register them. Returns a per-field report.
+
+function findControl(label) {
+  const controls = [...document.querySelectorAll(
+    'input[type="text"], input[type="email"], input[type="tel"], input:not([type]), textarea, select'
+  )].filter((el) => el.offsetParent !== null);
+  const hint = label.toLowerCase();
+  let best = null, bestDepth = Infinity;
+  for (const el of controls) {
+    let node = el, depth = 0;
+    while (node && depth < 8) {
+      const text = (node.innerText || '').toLowerCase();
+      if (text.includes(hint) && text.length < 1500) {
+        if (depth < bestDepth) { best = el; bestDepth = depth; }
+        break;
+      }
+      node = node.parentElement; depth++;
+    }
+  }
+  return best;
+}
+
+function setReactValue(el, value) {
+  const proto = el instanceof HTMLTextAreaElement
+    ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+  setter.call(el, value);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function fillOne(field) {
+  const el = findControl(field.label);
+  if (!el) return { label: field.label, ok: false, reason: 'no control found' };
+  try {
+    if (el instanceof HTMLSelectElement) {
+      const opt = [...el.options].find(
+        (o) => o.value === field.value || o.text.trim().toLowerCase() === String(field.value).toLowerCase()
+      );
+      if (!opt) return { label: field.label, ok: false, reason: 'option not found' };
+      el.value = opt.value;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return { label: field.label, ok: true, kind: 'select' };
+    }
+    el.focus();
+    setReactValue(el, String(field.value));
+    if (field.commit) {
+      // Combobox commit: filter text is set; nudge selection of first match.
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
+    el.blur();
+    return { label: field.label, ok: true, kind: el.tagName.toLowerCase() };
+  } catch (e) {
+    return { label: field.label, ok: false, reason: e.message };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'fill') {
+    const report = (msg.fields || []).map(fillOne);
+    const okCount = report.filter((r) => r.ok).length;
+    toast(`Upload Bridge: filled ${okCount}/${report.length} fields`, okCount === report.length);
+    sendResponse({ ok: true, report });
+    return true;
+  }
   if (msg.type !== 'inject') return;
   try {
     const input = findFileInput(msg.targetHint);
